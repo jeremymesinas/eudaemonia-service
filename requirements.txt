@@ -1,6 +1,7 @@
 Flask
 deepface  # Version that works without backend parameter
 tensorflow  # Last stable version before Keras separation
+tf-keras
 requests
 Pillow
 gunicorn
