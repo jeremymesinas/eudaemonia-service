@@ -1,87 +1,107 @@
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow logs
-os.environ['OMP_NUM_THREADS'] = '1'       # Prevent memory leaks
-os.environ['CUDA_VISIBLE_DEVICES'] = ''   # Disable GPU
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # Better memory handling
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 from flask import Flask, request, jsonify
 from deepface import DeepFace
 import requests
 from io import BytesIO
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import logging
 import numpy as np
 from functools import lru_cache
-import gc
+import traceback
 
-# Initialize logger
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Cache the model with memory cleanup
 @lru_cache(maxsize=1)
 def load_model():
-    logger.info("Initializing DeepFace model...")
     try:
-        model = DeepFace.build_model("Facenet")  # Using lighter Facenet instead of Facenet512
-        logger.info("Model loaded successfully")
-        return model
+        logger.info("Loading Facenet model...")
+        return DeepFace.build_model("Facenet")
     except Exception as e:
-        logger.error(f"Model initialization failed: {str(e)}")
+        logger.error(f"Model loading failed: {str(e)}\n{traceback.format_exc()}")
         raise
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
-        # Fail fast validation
-        if not request.json or 'image_url' not in request.json:
-            return jsonify({"error": "Missing image_url"}), 400
+        # Validate input
+        if not request.json:
+            return jsonify({"error": "No JSON payload provided"}), 400
+        if 'image_url' not in request.json:
+            return jsonify({"error": "Missing image_url parameter"}), 400
+        
+        # Download image with error handling
+        try:
+            response = requests.get(
+                request.json['image_url'], 
+                timeout=15,
+                headers={'User-Agent': 'Mozilla/5.0'}
+            )
+            response.raise_for_status()
             
-        # Stream image download to save memory
-        with requests.get(request.json['image_url'], stream=True, timeout=15) as r:
-            r.raise_for_status()
-            img = Image.open(BytesIO(r.content))
-        
-        # Convert and immediately free memory
-        img_np = np.array(img.convert('RGB'))
-        del img  # Explicit memory release
-        gc.collect()  # Force garbage collection
-        
-        # Use faster detector and single action
-        results = DeepFace.analyze(
-            img_path=img_np,
-            actions=['emotion'],  # Only emotion to reduce processing
-            detector_backend='fastmtcnn',  # Lighter than retinaface
-            enforce_detection=False,
-            silent=True
-        )
-        
-        # Clean up before response
-        del img_np
-        gc.collect()
-        
-        return jsonify({
-            'dominant_emotion': results[0]['dominant_emotion'],
-            'emotions': results[0]['emotion']
-        })
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Image download failed: {str(e)}")
-        return jsonify({"error": "Failed to download image"}), 400
+            # Verify image content
+            if 'image/' not in response.headers.get('Content-Type', ''):
+                return jsonify({"error": "URL does not point to an image"}), 400
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Image download failed: {str(e)}")
+            return jsonify({"error": "Failed to download image. Please check the URL."}), 400
+
+        # Process image with detailed error handling
+        try:
+            with Image.open(BytesIO(response.content)) as img:
+                if img.format not in ['JPEG', 'PNG', 'WEBP']:
+                    return jsonify({"error": f"Unsupported image format: {img.format}"}), 400
+                
+                img_np = np.array(img.convert('RGB'))
+                
+                # Analyze with specific error capture
+                try:
+                    results = DeepFace.analyze(
+                        img_path=img_np,
+                        actions=['emotion'],
+                        detector_backend='fastmtcnn',
+                        enforce_detection=False,
+                        silent=False  # Set to False to get detection logs
+                    )
+                    
+                    if not results:
+                        return jsonify({"error": "No faces detected"}), 400
+                        
+                    return jsonify({
+                        'dominant_emotion': results[0]['dominant_emotion'],
+                        'emotions': results[0]['emotion']
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Analysis failed: {str(e)}\n{traceback.format_exc()}")
+                    return jsonify({"error": f"Analysis error: {str(e)}"}), 500
+                    
+        except UnidentifiedImageError:
+            return jsonify({"error": "Invalid image file"}), 400
+        except Exception as e:
+            logger.error(f"Image processing failed: {str(e)}\n{traceback.format_exc()}")
+            return jsonify({"error": "Image processing error"}), 500
+            
     except Exception as e:
-        logger.error(f"Analysis failed: {str(e)}")
-        return jsonify({"error": "Processing error. Please try a different image."}), 500
+        logger.error(f"Unexpected error: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "healthy"})
-
-# Memory cleanup between requests
-@app.teardown_request
-def cleanup(exception=None):
-    gc.collect()
+    try:
+        # Test model loading if not already loaded
+        load_model()
+        return jsonify({"status": "healthy"})
+    except:
+        return jsonify({"status": "unhealthy"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
