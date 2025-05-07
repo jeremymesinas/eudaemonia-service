@@ -1,6 +1,7 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow logs
 os.environ['OMP_NUM_THREADS'] = '1'       # Prevent memory leaks
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 from flask import Flask, request, jsonify
 from deepface import DeepFace
@@ -18,7 +19,14 @@ app = Flask(__name__)
 # Simplified model initialization - remove 'backend' parameter
 try:
     logger.info("Initializing DeepFace model...")
-    DeepFace.build_model("Facenet512")  # REMOVED problematic backend parameter
+    model = None
+    @app.before_first_request
+    def load_model():
+        global model
+        logger.info("Initializing DeepFace model...")
+        model = DeepFace.build_model("Facenet512")
+        logger.info("Model loaded successfully")
+
     logger.info("Model loaded successfully")
 except Exception as e:
     logger.error(f"Model initialization failed: {str(e)}")
@@ -39,8 +47,10 @@ def analyze():
             actions=['emotion'],
             detector_backend='retinaface',
             enforce_detection=False,
-            silent=True
+            silent=True,
+            model=model
         )
+
         
         return jsonify({
             'dominant_emotion': results[0]['dominant_emotion'],
