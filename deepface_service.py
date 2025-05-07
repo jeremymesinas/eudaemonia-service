@@ -1,6 +1,6 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow logs
-os.environ['OMP_NUM_THREADS'] = '1'  # Prevent memory leaks
+os.environ['OMP_NUM_THREADS'] = '1'       # Prevent memory leaks
 
 from flask import Flask, request, jsonify
 from deepface import DeepFace
@@ -9,45 +9,35 @@ from io import BytesIO
 from PIL import Image
 import logging
 
-# Configure logging
+# Initialize logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize ONNX model at startup (saves 2-3s per request)
+app = Flask(__name__)
+
+# Simplified model initialization - remove 'backend' parameter
 try:
     logger.info("Initializing DeepFace model...")
-    DeepFace.build_model("Facenet512", backend="onnxruntime")
+    DeepFace.build_model("Facenet512")  # REMOVED problematic backend parameter
     logger.info("Model loaded successfully")
 except Exception as e:
     logger.error(f"Model initialization failed: {str(e)}")
     raise
 
-app = Flask(__name__)
-
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
-        # Validate input
         if not request.json or 'image_url' not in request.json:
             return jsonify({"error": "Missing image_url"}), 400
             
-        # Download image with timeout
-        try:
-            response = requests.get(
-                request.json['image_url'], 
-                timeout=10,
-                headers={'User-Agent': 'DeepFace/1.0'}
-            )
-            response.raise_for_status()
-            img = Image.open(BytesIO(response.content))
-        except Exception as e:
-            return jsonify({"error": f"Image download failed: {str(e)}"}), 400
-
-        # Analyze with optimized settings
+        response = requests.get(request.json['image_url'], timeout=10)
+        img = Image.open(BytesIO(response.content))
+        
+        # Use retinaface detector for better performance
         results = DeepFace.analyze(
             img_path=img,
             actions=['emotion'],
-            detector_backend='retinaface',  # Faster than default
+            detector_backend='retinaface',
             enforce_detection=False,
             silent=True
         )
