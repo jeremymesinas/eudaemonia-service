@@ -4,6 +4,8 @@ import requests
 from io import BytesIO
 from PIL import Image
 
+DeepFace.build_model("Facenet512", backend="onnxruntime")
+
 app = Flask(__name__)
 
 @app.route('/analyze', methods=['POST'])
