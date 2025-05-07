@@ -10,6 +10,7 @@ from io import BytesIO
 from PIL import Image
 import logging
 import numpy as np
+from functools import lru_cache
 
 # Initialize logger
 logging.basicConfig(level=logging.INFO)
@@ -17,31 +18,36 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Initialize model at startup
-logger.info("Initializing DeepFace model...")
-try:
-    model = DeepFace.build_model("Facenet512")
-    logger.info("Model loaded successfully")
-except Exception as e:
-    logger.error(f"Model initialization failed: {str(e)}")
-    raise
-
-@app.route('/analyze', methods=['POST'])
+# Cache the model to prevent re-loading on every request
+@lru_cache(maxsize=1)
+def load_model():
+    logger.info("Initializing DeepFace model...")
+    try:
+        model = DeepFace.build_model("Facenet")
+        logger.info("Model loaded successfully")
+        return model
+    except Exception as e:
+        logger.error(f"Model initialization failed: {str(e)}")
+        raise
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
+        # Validate input
         if not request.json or 'image_url' not in request.json:
             return jsonify({"error": "Missing image_url"}), 400
             
-        response = requests.get(request.json['image_url'], timeout=10)
+        # Download image with timeout
+        response = requests.get(request.json['image_url'], timeout=15)
+        response.raise_for_status()  # Raise error for bad status
+        
+        # Convert to numpy array
         img = Image.open(BytesIO(response.content))
+        img_np = np.array(img.convert('RGB'))
         
-        # Convert PIL Image to NumPy array (RGB format)
-        img_np = np.array(img.convert('RGB'))  # <<< FIX HERE
-        
+        # Analyze with cached model
         results = DeepFace.analyze(
-            img_path=img_np,  # Now passing a NumPy array
+            img_path=img_np,
             actions=['emotion'],
             detector_backend='retinaface',
             enforce_detection=False,
@@ -53,6 +59,9 @@ def analyze():
             'emotions': results[0]['emotion']
         })
         
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Image download failed: {str(e)}")
+        return jsonify({"error": "Failed to download image"}), 400
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}")
         return jsonify({"error": str(e)}), 500
