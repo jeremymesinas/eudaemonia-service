@@ -12,3 +12,7 @@ services:
         value: "1"
       - key: TF_CPP_MIN_LOG_LEVEL
         value: "3"
+      - key: TF_XLA_FLAGS
+        value: "--tf_xla_enable_xla_devices"
+      - key: CUDA_VISIBLE_DEVICES
+        value: ""
