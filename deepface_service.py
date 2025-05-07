@@ -16,17 +16,10 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Simplified model initialization - remove 'backend' parameter
+# Initialize model at startup
+logger.info("Initializing DeepFace model...")
 try:
-    logger.info("Initializing DeepFace model...")
-    model = None
-    @app.before_first_request
-    def load_model():
-        global model
-        logger.info("Initializing DeepFace model...")
-        model = DeepFace.build_model("Facenet512")
-        logger.info("Model loaded successfully")
-
+    model = DeepFace.build_model("Facenet512")
     logger.info("Model loaded successfully")
 except Exception as e:
     logger.error(f"Model initialization failed: {str(e)}")
@@ -47,11 +40,9 @@ def analyze():
             actions=['emotion'],
             detector_backend='retinaface',
             enforce_detection=False,
-            silent=True,
-            model=model
+            silent=True
         )
 
-        
         return jsonify({
             'dominant_emotion': results[0]['dominant_emotion'],
             'emotions': results[0]['emotion']
