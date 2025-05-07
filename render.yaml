@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: deepface-service
+    env: python
+    buildCommand: |
+      apt-get update && apt-get install -y libgl1 libglib2.0-0
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: gunicorn deepface_service:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: "3"
