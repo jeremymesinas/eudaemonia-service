@@ -27,7 +27,6 @@ except Exception as e:
     raise
 
 @app.route('/analyze', methods=['POST'])
-import numpy as np  # Add this at the top of your file
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
