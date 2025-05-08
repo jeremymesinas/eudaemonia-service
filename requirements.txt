@@ -10,3 +10,4 @@ gevent
 numpy
 #opencv-python-headless
 opencv-python-headless
+facenet-pytorch
