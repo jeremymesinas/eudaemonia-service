@@ -9,7 +9,6 @@ from PIL import Image, UnidentifiedImageError
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from deepface import DeepFace
-from deepface.commons import functions
 
 # ========== Configuration ==========
 app = Flask(__name__)
@@ -43,6 +42,7 @@ def load_face_model():
 # Pre-load the model when starting up
 try:
     face_model = load_face_model()
+    logger.info("Model loaded successfully")
 except Exception as e:
     logger.critical(f"Failed to initialize model: {e}")
     exit(1)
@@ -122,8 +122,7 @@ def analyze_face():
                 actions=['emotion'],
                 detector_backend='retinaface',
                 enforce_detection=False,
-                silent=True,
-                model=face_model  # Use our pre-loaded model
+                silent=True
             )
 
             if not results:
@@ -134,7 +133,7 @@ def analyze_face():
                 "status": "success",
                 "dominant_emotion": results[0]['dominant_emotion'],
                 "emotion_scores": results[0]['emotion'],
-                "face_region": results[0]['region'] if 'region' in results[0] else None
+                "face_region": results[0].get('region')
             })
 
         except Exception as e:
@@ -156,7 +155,7 @@ def health_check():
     try:
         return jsonify({
             "status": "healthy",
-            "model": "loaded" if face_model else "unavailable"
+            "model": "loaded" if 'face_model' in globals() else "unavailable"
         })
     except Exception as e:
         return jsonify({"status": "unhealthy", "error": str(e)}), 500
